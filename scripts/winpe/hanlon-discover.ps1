@@ -10,25 +10,24 @@ $DebugPreference = "Continue";
 
 
 
-Function Convert-SmbiosUuid {
+Function Get-SmbiosUuid {
 
-Param (
-	[Parameter(Mandatory=$True)]
-	[String]
-	$rawUUID
-)
+if ((Get-WmiObject win32_computersystemproduct).Vendor -like "Innotek*")
+{
+	# on Oracle VM it seems, that the UUID is not in the right byte order
+	# to test with other versions of Oracle VM / other vendors
+	# Build the final string, piecing together Byte by Byte 
+	
+	$bytes=(Get-WmiObject win32_computersystemproduct).uuid.Split("-") -split '(..)' | ? { $_ };
+	$prettyUUID = $bytes[3] + $bytes[2] + $bytes[1] + $bytes[0] + "-" + $bytes[5] + $bytes[4] + "-" + $bytes[7] + $bytes[6] + "-" + $bytes[8] + $bytes[9] + "-" + $bytes[10] + $bytes[11] + $bytes[12] + $bytes[13] + $bytes[14] + $bytes[15];
+}
+else
+{
+	# for all other systems take the original uuid from WMI-Object
+	$prettyUUID = (Get-WmiObject win32_computersystemproduct).uuid;
+}
 
-
-# Create an array of each half (hyphen delimiter)
-$octets = $rawUUID.Split("-")
-
-# Create an array of each two-charactere byte (space delimiter)
-$bytes = $octets[0].Split(" ") + $octets[1].Split(" ")
-
-# Build the final string, piecing together byte by byte
-$prettyUUID = $bytes[3] + $bytes[2] + $bytes[1] + $bytes[0] + "-" + $bytes[5] + $bytes[4] + "-" + $bytes[7] + $bytes[6] + "-" + $bytes[8] + $bytes[9] + "-" + $bytes[10] + $bytes[11] + $bytes[12] + $bytes[13] + $bytes[14] + $bytes[15]
-
-Return $prettyUUID
+return $prettyUUID;
 
 }
 
@@ -162,40 +161,24 @@ Function Invoke-Main {
 		try {
 			$HanlonServerSettings = Get-HanlonServerParameters 
 
-            $IdentifyingNumber = (Get-WmiObject win32_computersystemproduct).IdentifyingNumber
-
-            $result = [regex]::match($IdentifyingNumber,'VMware\-(.*)').Groups[1]
-
-            Write-Debug $result
-
-            if( $result.Success ) {
-                Write-Debug "Begin If"
-                $SmbiosUuid = Convert-SmbiosUuid -rawUUID $result.Value
-                Write-Debug "End If"
-            }
-            else {
-                Write-Debug "Begin Else"
-                $SmbiosUuid = (get-wmiobject win32_computersystemproduct).uuid
-                Write-Debug "End Else"
-
-            }
+            		$SmbiosUuid = Get-SmbiosUuid
 
 			Write-Debug $SmbiosUuid
 
-            $hanlonBaseUri = "http://$($HanlonServerSettings.IPAddress):$($HanlonServerSettings.port)/$($HanlonServerSettings.baseuri)"
+            		$hanlonBaseUri = "http://$($HanlonServerSettings.IPAddress):$($HanlonServerSettings.port)/$($HanlonServerSettings.baseuri)"
 
-            Write-Debug $hanlonBaseUri
-            $queryActiveModel = "$hanlonBaseUri/active_model?hw_id=$SmbiosUuid"
+            		Write-Debug $hanlonBaseUri
+            		$queryActiveModel = "$hanlonBaseUri/active_model?hw_id=$SmbiosUuid"
 
-            Write-Debug $queryActiveModel
-            $activeModel = Invoke-WebRequest -Uri $queryActiveModel -UseBasicParsing | ConvertFrom-Json
+		        Write-Debug $queryActiveModel
+            		$activeModel = Invoke-WebRequest -Uri $queryActiveModel -UseBasicParsing | ConvertFrom-Json
 
-            #$activeModelUuid = Invoke-WebRequest -Uri $activeModel.response."@uri" -UseBasicParsing | ConvertFrom-Json
-            $uuid = $activeModel.response."@uuid"
+            		#$activeModelUuid = Invoke-WebRequest -Uri $activeModel.response."@uri" -UseBasicParsing | ConvertFrom-Json
+            		$uuid = $activeModel.response."@uuid"
 
-            iex ((new-object net.webclient).DownloadString("$hanlonBaseUri/policy/callback/$uuid/install/file")) 
+            		iex ((new-object net.webclient).DownloadString("$hanlonBaseUri/policy/callback/$uuid/install/file")) 
 
-	}
+		}
 		catch {
 			write-host "Exception $($_.Exception.GetType().FullName), Message: $($_.Exception.Message), Line Number: $($_.InvocationInfo.ScriptLineNumber), Offset Inline: $($_.InvocationInfo.OffsetInLine)" -ForegroundColor Red
 		}
